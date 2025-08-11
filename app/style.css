@@ -1,0 +1,126 @@
+/* =============================
+   Palette & variables globales
+   ============================= */
+:root {
+  /* Couleurs principales */
+  --primary:   #0d6efd;   /* bleu */
+  --secondary: #6c757d;   /* gris neutre */
+  --success:   #198754;   /* vert */
+  --warning:   #ffc107;   /* jaune   */
+  --danger:    #dc3545;   /* rouge   */
+
+  /* Couleurs de fond */
+  --bg-light:  #f8f9fa;
+  --bg-dark:   #343a40;
+
+  /* Typo */
+  --font-main: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* =============================
+   Reset Streamlit par défaut
+   ============================= */
+html, body {
+  font-family: var(--font-main);
+  background-color: var(--bg-light);
+  color: #212529;
+}
+
+/* En-tête Streamlit */
+header[data-testid="stHeader"] {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* Cacher le menu burger et footer Streamlit natifs (optionnel) */
+footer, .css-18ni7ap.e8zbici2 { visibility: hidden; }
+
+/* =============================
+   Titres & sous-titres
+   ============================= */
+h1, h2, h3, h4 {
+  color: var(--primary);
+  font-weight: 600;
+}
+h1 { font-size: 2.1rem; margin-bottom: .6rem; }
+h2 { font-size: 1.6rem; margin-top: 1.2rem;   }
+
+/* =============================
+   Cartes (containers Streamlit)
+   ============================= */
+div[data-testid="stVerticalBlock"] > div {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1.4rem 1.6rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  margin-bottom: 1.2rem;
+}
+
+/* =============================
+   Boutons
+   ============================= */
+button[kind="primary"] {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: background .2s ease;
+}
+button[kind="primary"]:hover {
+  background: #0b5ed7;      /* un poil plus foncé */
+}
+button[kind="secondary"] {
+  background: var(--secondary);
+  color: #fff;
+}
+
+/* =============================
+   Select & input
+   ============================= */
+input, textarea, select {
+  border-radius: 6px;
+  border: 1px solid #ced4da;
+  padding: .45rem .75rem;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 .15rem rgba(13,110,253,.25);
+}
+
+/* =============================
+   Graphes Plotly / Altair
+   ============================= */
+.streamlit-expanderHeader {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+/* =============================
+   Petits “badges” catégorie
+   ============================= */
+.tag {
+  display: inline-block;
+  padding: .2rem .55rem;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 600;
+  background: var(--primary);
+  color: #fff;
+  margin-right: .4rem;
+}
+.tag.warning  { background: var(--warning);  color: #000; }
+.tag.success  { background: var(--success);  }
+.tag.danger   { background: var(--danger);   }
+
+/* =============================
+   Animation douce au chargement
+   ============================= */
+.fade-in {
+  animation: fade .5s ease-in;
+}
+@keyframes fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

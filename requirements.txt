@@ -1,0 +1,10 @@
+pandas
+numpy
+scikit-learn
+xgboost
+catboost
+joblib
+matplotlib
+seaborn
+streamlit
+# (facultatif) RAPIDS/cuML pour GPU : installez-le via conda si carte NVIDIA

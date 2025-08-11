@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Données lourdes temporaires
+data/*.parquet
+data/*.feather
+
+# Modèles (option 1: si tu veux entraîner sur le Cloud)
+# models/

@@ -1,0 +1,14 @@
+{
+  "(?i)\\bmarche|mise\\b": "Mise en marche",
+  "(?i)reglage|capteur|position": "Réglage position / capteur",
+  "(?i)nettoyage|verification|deblocage|reparation": "Nettoyage / vérification / déblocage / réparation",
+  "(?i)changement|roulement|poulie": "Changement roulement / poulie",
+  "(?i)bobinoir|bobinoire|debouchage": "Déblocage bobinoir / débouchage",
+  "(?i)serrage|depart|pointe": "Capteur / serrage / départ pointe",
+  "(?i)image|marqueur": "Marqueur / image",
+  "(?i)verin|fuite": "Vérin / fuite",
+  "(?i)courroie|chaine": "Transmission (courroie/chaîne)",
+  "(?i)moteur|variateur": "Moteur / variateur",
+  "(?i)graissage|lubr": "Graissage / lubrification",
+  "(?i)autre": "Autre"
+}
