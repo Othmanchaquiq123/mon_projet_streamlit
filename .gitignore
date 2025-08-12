@@ -15,3 +15,4 @@ data/*.feather
 # Modèles (option 1: si tu veux entraîner sur le Cloud)
 # models/
 .streamlit/secrets.toml
+.streamlit/secrets.toml
