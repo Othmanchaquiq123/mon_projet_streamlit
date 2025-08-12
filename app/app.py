@@ -2,7 +2,7 @@
 # app/app.py – Auth  ▸  Dashboard  ▸  Prédiction
 # lance :  streamlit run app/app.py
 # ──────────────────────────────────────────────────────────────
-import sys, pathlib, datetime as dt
+import os, sys, pathlib, importlib, datetime as dt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -21,27 +21,61 @@ if css.exists():
 from dashboard      import load_data, draw_dashboard      # app/dashboard.py
 from utils_features import clean                          # src/utils_features.py
 
+# =================  util: rerun & padding =====================
 def _rerun():
     if hasattr(st, "rerun"): st.rerun()
     else: st.experimental_rerun()
 
-# =================  modèles & data  ==========================
+def _pad_to_expected(X_csr, expected_cols: int):
+    """Aligne X (csr) sur expected_cols colonnes (pad zéros si < ; tronque si >)."""
+    if expected_cols is None:
+        return X_csr
+    cur = X_csr.shape[1]
+    if cur == expected_cols:
+        return X_csr
+    if cur < expected_cols:
+        pad = sp.csr_matrix((X_csr.shape[0], expected_cols - cur), dtype=X_csr.dtype)
+        return sp.hstack([X_csr, pad], format="csr")
+    # cur > expected : on tronque (rare ; protège d'un crash)
+    return X_csr[:, :expected_cols]
+
+# =================  charge ou entraîne ========================
 MODELS = ROOT / "models"
-try:
-    type_obj  = joblib.load(MODELS / "type_clf.pkl")   # dict{'model','tf_w','tf_c','id2name'/...}
-    xgb_tr    = joblib.load(MODELS / "xgb_tr.pkl")
-    cat_ar    = joblib.load(MODELS / "cat_ar.pkl")
-    scaler    = joblib.load(MODELS / "scaler.pkl")
-    num_feats = joblib.load(MODELS / "num_feats.pkl")  # list[str] (durées)
-except FileNotFoundError as e:
-    st.error(f"Modèle manquant : {e}. Lance d’abord `python -m src.save_models`.")
-    st.stop()
+MODELS.mkdir(exist_ok=True)
 
-# Libellés « humains » en priorité
+@st.cache_data(show_spinner="Chargement des modèles…", max_entries=1)
+def load_or_train_models():
+    req = [
+        MODELS / "type_clf.pkl",
+        MODELS / "xgb_tr.pkl",
+        MODELS / "cat_ar.pkl",
+        MODELS / "scaler.pkl",
+        MODELS / "num_feats.pkl",
+    ]
+    # tentative de chargement
+    try:
+        objs = [joblib.load(p) for p in req]
+        return tuple(objs)
+    except Exception as e:
+        # ré-entraînement dans l'env courant (pour compatibilité versions)
+        with st.spinner(f"⚠️ Modèles absents/incompatibles ({e}). Ré-entraînement…"):
+            importlib.invalidate_caches()
+            # les scripts sont dans src/, on les importe grâce à sys.path
+            importlib.import_module("train_type")
+            importlib.import_module("train_durations")
+        objs = [joblib.load(p) for p in req]
+        st.success("✅ Modèles (re)entraînés dans /models.")
+        return tuple(objs)
+
+# essai de charge (ou train)
+type_obj, xgb_tr, cat_ar, scaler, num_feats = load_or_train_models()
+
+# Libellés “humains” en priorité
 ID2NAME       = type_obj.get("id2nice", type_obj.get("id2name", {}))
-TYPE_NUM_COLS = type_obj.get("num_cols_type")    # list[str] si le classif type a des features num
-TYPE_SCALER   = type_obj.get("scaler_type")      # scaler appliqué à ces features num
+TYPE_NUM_COLS = type_obj.get("num_cols_type")             # list[str] si le classif type a des features num
+TYPE_SCALER   = type_obj.get("scaler_type")               # scaler appliqué à ces features num
 
+# =================  data  ====================================
 DATA_PATH = ROOT / "data" / "output.csv"
 df        = load_data(DATA_PATH)
 machines  = sorted(df.Code_Machine.unique())
@@ -52,14 +86,14 @@ MIN_DATE  = df.DateDebut.min()
 def build_machine_priors(df_: pd.DataFrame, _type_obj_: dict):
     """
     Retourne:
-      - priors: dict {machine -> np.array([p(cat0), p(cat1), ...])}
-      - classes: list (ordre des classes du modèle)
-      - global_prior: np.array prior global (moyenne)
+      - priors: dict {machine -> np.array([p(c0), p(c1), ...])}
+      - classes: ordre des classes du modèle
+      - global_prior: moyenne globale (np.array)
     NB: le 2e param commence par '_' pour éviter le hash du dict (Streamlit).
     """
     type_obj = _type_obj_
     model    = type_obj["model"]
-    classes  = list(model.classes_) if hasattr(model, "classes_") else []
+    classes  = list(getattr(model, "classes_", []))
 
     # 1) Textes historiques nettoyés
     df_text = df_[["Code_Machine", "Trv_Effectue"]].dropna(subset=["Trv_Effectue"]).copy()
@@ -71,30 +105,39 @@ def build_machine_priors(df_: pd.DataFrame, _type_obj_: dict):
     Xc   = type_obj["tf_c"].transform(txts)
     Xtxt = sp.hstack([Xw, Xc], format="csr")
 
-    # 2) Si le modèle a été entraîné avec texte + NUM, ajoute un bloc NUM de même taille
-    #    Ici on ne connaît pas les valeurs historiques ⇒ on met un bloc ZÉRO de dimension exacte.
-    if TYPE_NUM_COLS is not None and len(TYPE_NUM_COLS) > 0:
+    # 2) Ajout d'un bloc NUM vide si le classif type a été entraîné avec num
+    if TYPE_NUM_COLS:
         Xnum0 = sp.csr_matrix((Xtxt.shape[0], len(TYPE_NUM_COLS)), dtype=np.float32)
         X     = sp.hstack([Xtxt, Xnum0], format="csr")
     else:
         X = Xtxt
 
-    # 3) Probas pour chaque ligne, puis agrégation par machine
+    # 3) Aligne la dimension attendue par le modèle (protège contre mismatch)
+    exp = getattr(model, "n_features_in_", None)
+    X   = _pad_to_expected(X, exp)
+
+    priors = {}
     if hasattr(model, "predict_proba"):
-        proba   = model.predict_proba(X)      # (n, C)
-        classes = list(model.classes_)
-        priors  = {}
-        for m in df_text["Code_Machine"].unique():
-            mask = (df_text["Code_Machine"] == m).values
-            if mask.sum() == 0: 
-                continue
-            s = proba[mask].sum(axis=0) + 1.0             # lissage de Laplace
-            priors[m] = (s / s.sum()).astype(float)
-        global_prior = proba.mean(axis=0)
+        try:
+            proba   = model.predict_proba(X)      # (n, C)
+            classes = list(model.classes_)
+            for m in df_text["Code_Machine"].unique():
+                mask = (df_text["Code_Machine"] == m).values
+                if mask.sum() == 0:
+                    continue
+                s = proba[mask].sum(axis=0) + 1.0            # lissage de Laplace
+                priors[m] = (s / s.sum()).astype(float)
+            global_prior = proba.mean(axis=0)
+        except Exception:
+            if len(classes) == 0:
+                return {}, [], np.array([])
+            uni = np.ones(len(classes), dtype=float) / len(classes)
+            priors = {m: uni for m in df_text["Code_Machine"].unique()}
+            global_prior = uni
     else:
+        # pas de proba : histogramme de prédictions
         pred    = model.predict(X)
         classes = list(np.unique(pred))
-        priors  = {}
         for m in df_text["Code_Machine"].unique():
             mask = (df_text["Code_Machine"] == m).values
             bins = np.array([np.sum(pred[mask] == c) for c in classes], dtype=float) + 1.0
@@ -105,7 +148,17 @@ def build_machine_priors(df_: pd.DataFrame, _type_obj_: dict):
 
 MACHINE_PRIORS, CLASSES, GLOBAL_PRIOR = build_machine_priors(df, type_obj)
 
-# =================  Auth  ====================================
+# =================  Auth (secrets sûrs)  ======================
+def _get_password():
+    try:
+        # Streamlit Cloud (ou local si .streamlit/secrets.toml existe)
+        return st.secrets["APP_PASSWORD"]
+    except Exception:
+        # fallback local: variable d'env, puis "demo"
+        return os.environ.get("APP_PASSWORD", "demo")
+
+PASSWORD = _get_password()
+
 if "auth_ok" not in st.session_state:
     st.session_state.auth_ok = False
 
@@ -115,7 +168,7 @@ if not st.session_state.auth_ok:
         pwd  = st.text_input("Mot de passe :", type="password")
         sub  = st.form_submit_button("Se connecter")
     if sub:
-        if pwd.strip().lower() == "demo":   # 🔑 change ce mot de passe !
+        if pwd.strip() == PASSWORD:
             st.session_state.auth_ok = True
             _rerun()
         else:
@@ -154,7 +207,7 @@ if st.button("Prédire"):
     Xc  = type_obj["tf_c"].transform([txt])
     parts = [sp.hstack([Xw, Xc], format="csr")]
 
-    if TYPE_NUM_COLS is not None and TYPE_SCALER is not None and len(TYPE_NUM_COLS) > 0:
+    if TYPE_NUM_COLS and TYPE_SCALER is not None:
         dt_full = dt.datetime.combine(jour, heure)
         row_t = pd.Series(0.0, index=TYPE_NUM_COLS, dtype="float32")
         if mach in row_t.index: row_t[mach] = 1.0
@@ -170,27 +223,29 @@ if st.button("Prédire"):
         parts.append(sp.csr_matrix(Xnum_t.values))
 
     X_type = parts[0] if len(parts) == 1 else sp.hstack(parts, format="csr")
-    model_type = type_obj["model"]
 
-    # Proba texte
-    classes = list(model_type.classes_) if hasattr(model_type, "classes_") else CLASSES
+    model_type = type_obj["model"]
+    exp_cols   = getattr(model_type, "n_features_in_", None)
+    X_type     = _pad_to_expected(X_type, exp_cols)
+
+    # Proba texte (ou one-hot)
+    classes = list(getattr(model_type, "classes_", CLASSES))
     if hasattr(model_type, "predict_proba"):
         proba_text = model_type.predict_proba(X_type)[0]
     else:
-        # fallback one-hot si pas de predict_proba
         pred_id = int(model_type.predict(X_type)[0])
         proba_text = np.zeros(len(classes), dtype=float)
         try:
             proba_text[classes.index(pred_id)] = 1.0
         except Exception:
-            proba_text[:] = 1.0 / len(classes)
+            proba_text[:] = 1.0 / max(1, len(classes))
 
-    # Prior machine (même ordre de classes)
+    # Prior machine (même ordre de classes ; sinon global)
     prior_m = MACHINE_PRIORS.get(mach)
     if prior_m is None or len(prior_m) != len(classes):
         prior_m = GLOBAL_PRIOR if GLOBAL_PRIOR.size else np.ones(len(classes))/len(classes)
 
-    # pondération : texte vs prior machine
+    # pondération texte/prior : plus de poids au texte s’il y a ≥3 mots
     alpha = 0.75 if len(txt.split()) >= 3 else 0.35
     proba_mix = alpha * proba_text + (1 - alpha) * prior_m
     proba_mix = proba_mix / proba_mix.sum()
